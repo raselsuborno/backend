@@ -1,0 +1,32 @@
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = globalThis;
+
+let prisma = globalForPrisma.prisma;
+
+if (!prisma) {
+  prisma = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' 
+      ? ['warn', 'error'] 
+      : ['error'],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
+  });
+
+  if (process.env.NODE_ENV !== 'production') {
+    globalForPrisma.prisma = prisma;
+  }
+}
+
+// Handle graceful shutdown
+process.on('beforeExit', async () => {
+  if (prisma) {
+    await prisma.$disconnect();
+  }
+});
+
+export default prisma;
+

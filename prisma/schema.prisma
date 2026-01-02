@@ -1,0 +1,408 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  WORKER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkerApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique // Supabase user ID
+  email     String   @unique
+  fullName  String?
+  phone     String?
+  role      UserRole @default(CUSTOMER)
+  
+  // Legacy address fields (kept for backward compatibility)
+  street    String?
+  unit      String?
+  city      String?
+  province  String?
+  postal    String?
+  country   String?  @default("Canada")
+  
+  // Profile picture (URL or base64)
+  profilePicUrl String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[] @relation("CustomerBookings")
+  assignedBookings Booking[] @relation("WorkerAssignments")
+  addresses Address[] @relation("UserAddresses")
+  chores    Chore[]  @relation("CustomerChores")
+  orders    Order[]
+  careerApplications CareerApplication[]
+  workerApplications WorkerApplication[] @relation("WorkerApplications")
+  workerDocuments WorkerDocument[] @relation("WorkerDocuments")
+
+  @@map("profiles")
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  profileId String
+  profile   Profile  @relation("UserAddresses", fields: [profileId], references: [id], onDelete: Cascade)
+  
+  // Address label (e.g., "Home", "Office", "Vacation Home")
+  label     String?  @default("Home")
+  
+  // Contact info for this address
+  fullName  String?
+  phone     String?
+  
+  // Address fields
+  street    String
+  unit      String?
+  city      String
+  province  String
+  postal    String
+  country   String   @default("Canada")
+  
+  // Address preferences
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("addresses")
+}
+
+model ServiceCategory {
+  id        String   @id @default(cuid())
+  type      String   // HOME | CORPORATE
+  title     String
+  subtitle  String?
+  imageUrl  String?
+  services  Service[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("service_categories")
+}
+
+model Service {
+  id          String          @id @default(uuid())
+  categoryId  String?
+  name        String
+  slug        String          @unique // e.g., "house-cleaning", "snow-removal"
+  description String?         // Service description
+  basePrice   Float?          // Base price for the service
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  category    ServiceCategory? @relation(fields: [categoryId], references: [id])
+  bookings    Booking[]
+  options     ServiceOption[] // Service options (subservices)
+
+  @@map("services")
+}
+
+// Service Options (subservices, add-ons, etc.)
+model ServiceOption {
+  id          String   @id @default(cuid())
+  serviceId   String
+  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  
+  name        String   // e.g., "Deep Clean", "Weekly", "Monthly"
+  description String?
+  price       Float?   // Additional price for this option (null = included)
+  priceModifier Float? // Percentage modifier (e.g., 1.2 = 20% increase, 0.9 = 10% discount)
+  duration    Int?     // Duration in minutes
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("service_options")
+}
+
+model Booking {
+  id        String        @id @default(uuid())
+  status    BookingStatus @default(PENDING)
+  
+  // Customer (optional for guest bookings)
+  customerId String?
+  customer   Profile? @relation("CustomerBookings", fields: [customerId], references: [id])
+  
+  // Guest user info (for non-logged in users)
+  guestEmail  String?
+  guestName   String?
+  guestPhone  String?
+  
+  // Worker assignment
+  assignedWorkerId String?
+  assignedWorker   Profile? @relation("WorkerAssignments", fields: [assignedWorkerId], references: [id])
+  
+  // Service
+  serviceId  String?
+  service    Service? @relation(fields: [serviceId], references: [id])
+  serviceName String? // Fallback if service is deleted
+  serviceSlug String? // Service slug for reference
+  
+  // Booking details
+  subService String?
+  frequency  String?
+  
+  // Schedule
+  date      DateTime
+  timeSlot  String? // e.g., "9:00 AM - 12:00 PM"
+  
+  // Address
+  addressLine String
+  city        String
+  province    String
+  postal      String
+  country     String? @default("Canada")
+  
+  // Additional info
+  notes       String?
+  totalAmount Float?
+  isFavorite  Boolean  @default(false)
+  
+  // Payment info
+  paymentMethod String? // "pay_later", "card", "cash"
+  paymentStatus String? @default("pending") // "pending", "paid", "refunded"
+  paidAt       DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bookings")
+}
+
+enum ChoreStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Chore {
+  id          String      @id @default(uuid())
+  title       String
+  category    String      // "Cleaning", "Handyman", etc.
+  description String?
+  budget      Float?
+  status      ChoreStatus @default(PENDING)
+  
+  // Customer (logged in user)
+  customerId  String?
+  customer    Profile?    @relation("CustomerChores", fields: [customerId], references: [id])
+  
+  // Guest user info (for non-logged in users)
+  guestEmail  String?
+  guestName   String?
+  guestPhone  String?
+  
+  // Additional details
+  address     String?
+  city        String?
+  province    String?
+  postal      String?
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("chores")
+}
+
+// Corporate Quote Requests
+model Quote {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  phone       String?
+  serviceType String
+  details     String?
+  companyName String?
+  status      String   @default("PENDING") // PENDING, CONTACTED, CLOSED
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("quotes")
+}
+
+// Shop Products
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  price       Float
+  category    String?  // "home-care", "automotive", "office", "bundles"
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  
+  orderItems  OrderItem[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("products")
+}
+
+// Shop Orders
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  customerId    String
+  customer      Profile     @relation(fields: [customerId], references: [id])
+  
+  status        OrderStatus @default(PENDING)
+  totalAmount   Float
+  taxAmount     Float       @default(0)
+  subtotal      Float
+  
+  // Shipping address
+  shippingName  String?
+  shippingAddressLine String?
+  shippingCity  String?
+  shippingProvince String?
+  shippingPostal String?
+  shippingCountry String? @default("Canada")
+  
+  // Payment
+  paymentMethod String? // "card", "pay_later"
+  paymentStatus String? @default("pending")
+  paidAt        DateTime?
+  
+  items         OrderItem[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  
+  quantity    Int
+  price       Float // Price at time of order
+  subtotal    Float // quantity * price
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("order_items")
+}
+
+// Career Applications (General)
+model CareerApplication {
+  id          String   @id @default(uuid())
+  profileId   String?
+  profile     Profile? @relation(fields: [profileId], references: [id])
+  
+  // Application info
+  name        String
+  email       String
+  jobTitle    String
+  resumeUrl   String?
+  message     String?
+  status      String   @default("PENDING") // PENDING, REVIEWING, CONTACTED, REJECTED, HIRED
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("career_applications")
+}
+
+// Worker Applications
+model WorkerApplication {
+  id          String                  @id @default(cuid())
+  profileId   String?
+  email       String
+  fullName    String
+  phone       String?
+  city        String?
+  province    String?
+  workEligible Boolean? @default(true)
+  availability String?
+  experience  String?
+  termsAccepted Boolean? @default(false)
+  termsAcceptedAt DateTime?
+  adminNotes  String?
+  status      WorkerApplicationStatus @default(PENDING)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  profile     Profile? @relation("WorkerApplications", fields: [profileId], references: [id])
+
+  @@index([email])
+  @@map("worker_applications")
+}
+
+// Worker Documents
+model WorkerDocument {
+  id              String   @id @default(cuid())
+  workerProfileId String
+  type            String   // WORK_AUTH, TAX, ID, etc
+  fileUrl         String
+  createdAt       DateTime @default(now())
+
+  workerProfile   Profile  @relation("WorkerDocuments", fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@index([workerProfileId])
+  @@map("worker_documents")
+}
+
+// Contact Messages
+model ContactMessage {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  subject     String
+  message     String
+  status      String   @default("NEW") // NEW, READ, REPLIED, ARCHIVED
+  adminNotes  String?  // Admin notes about the message
+  repliedAt   DateTime?
+  repliedBy   String?  // Admin user ID who replied
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("contact_messages")
+}
