@@ -110,19 +110,24 @@ model ServiceCategory {
 }
 
 model Service {
-  id          String          @id @default(uuid())
-  categoryId  String?
-  name        String
-  slug        String          @unique // e.g., "house-cleaning", "snow-removal"
-  description String?         // Service description
-  basePrice   Float?          // Base price for the service
-  isActive    Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id           String          @id @default(uuid())
+  categoryId   String?
+  name         String
+  slug         String          @unique // e.g., "house-cleaning", "snow-removal"
+  type         String          @default("RESIDENTIAL") // RESIDENTIAL | CORPORATE
+  description  String?         // Service description
+  imageUrl     String?         // Service image URL
+  iconName     String?         // Lucide icon name (e.g., "Brush", "Home")
+  isTrending   Boolean         @default(false) // Trending badge
+  basePrice    Float?          // Base price for the service
+  bookingBlocks Json?          // Configured booking blocks for the booking details page
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
-  category    ServiceCategory? @relation(fields: [categoryId], references: [id])
-  bookings    Booking[]
-  options     ServiceOption[] // Service options (subservices)
+  category     ServiceCategory? @relation(fields: [categoryId], references: [id])
+  bookings     Booking[]
+  options      ServiceOption[] // Service options (subservices - used as bullets)
 
   @@map("services")
 }
@@ -189,6 +194,10 @@ model Booking {
   totalAmount Float?
   isFavorite  Boolean  @default(false)
   
+  // Worker completion info
+  completionPhotoUrl String? // Photo uploaded by worker when job is completed
+  workerNotes String? // Notes added by worker about the job
+  
   // Payment info
   paymentMethod String? // "pay_later", "card", "cash"
   paymentStatus String? @default("pending") // "pending", "paid", "refunded"
@@ -253,17 +262,33 @@ model Quote {
   @@map("quotes")
 }
 
+// Shop Product Categories
+model ProductCategory {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  description String?
+  imageUrl  String?
+  isActive  Boolean  @default(true)
+  products  Product[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("product_categories")
+}
+
 // Shop Products
 model Product {
   id          String   @id @default(uuid())
+  categoryId  String?
   name        String
   slug        String   @unique
   description String?
   price       Float
-  category    String?  // "home-care", "automotive", "office", "bundles"
   imageUrl    String?
   isActive    Boolean  @default(true)
   
+  category    ProductCategory? @relation(fields: [categoryId], references: [id])
   orderItems  OrderItem[]
   
   createdAt   DateTime @default(now())

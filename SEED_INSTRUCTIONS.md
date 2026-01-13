@@ -42,3 +42,4 @@ The products seed file has been created at `prisma/seed-products.js`. To seed pr
 - Total: 13 products
 
 
+

@@ -10,3 +10,4 @@ router.post('/', optionalAuth, careersController.createApplication);
 export default router;
 
 
+

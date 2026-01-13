@@ -1,6 +1,29 @@
 import prisma from '../lib/prisma.js';
 
 const shopController = {
+  // GET /api/shop/categories - Get all active categories (public)
+  getCategories: async (req, res, next) => {
+    try {
+      if (!prisma) {
+        return res.status(503).json({ message: 'Database not available' });
+      }
+
+      const categories = await prisma.productCategory.findMany({
+        where: {
+          isActive: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+
+      res.json(categories);
+    } catch (error) {
+      console.error('[Shop] Error in getCategories:', error);
+      next(error);
+    }
+  },
+
   // GET /api/shop/products - Get all active products
   getProducts: async (req, res, next) => {
     try {
@@ -11,6 +34,15 @@ const shopController = {
       const products = await prisma.product.findMany({
         where: {
           isActive: true,
+        },
+        include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
         },
         orderBy: {
           name: 'asc',
@@ -187,5 +219,6 @@ const shopController = {
 };
 
 export default shopController;
+
 
 

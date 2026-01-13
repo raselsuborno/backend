@@ -91,11 +91,18 @@ const servicesController = {
         return res.status(503).json({ message: 'Database not available' });
       }
 
-      const { name, slug, description, basePrice, isActive = true } = req.body;
+      const { name, slug, type, description, imageUrl, iconName, isTrending, basePrice, isActive = true, options, bookingBlocks } = req.body;
 
       if (!name || !slug) {
         return res.status(400).json({ 
           message: 'Name and slug are required' 
+        });
+      }
+
+      // Validate type
+      if (type && !['RESIDENTIAL', 'CORPORATE'].includes(type.toUpperCase())) {
+        return res.status(400).json({ 
+          message: 'Type must be either RESIDENTIAL or CORPORATE' 
         });
       }
 
@@ -118,13 +125,31 @@ const servicesController = {
         });
       }
 
+      // Create service with options
       const service = await prisma.service.create({
         data: {
           name: name.trim(),
           slug: slug.trim().toLowerCase(),
+          type: type ? type.toUpperCase() : 'RESIDENTIAL',
           description: description?.trim() || null,
+          imageUrl: imageUrl?.trim() || null,
+          iconName: iconName?.trim() || null,
+          isTrending: isTrending === true || isTrending === 'true' || false,
           basePrice: basePrice !== undefined && basePrice !== null ? parseFloat(basePrice) : null,
+          bookingBlocks: bookingBlocks && Array.isArray(bookingBlocks) && bookingBlocks.length > 0 
+            ? bookingBlocks 
+            : null,
           isActive: isActive === true || isActive === 'true',
+          options: options && Array.isArray(options) ? {
+            create: options.map((opt) => ({
+              name: opt.name || opt,
+              description: opt.description || null,
+              isActive: true,
+            })),
+          } : undefined,
+        },
+        include: {
+          options: true,
         },
       });
 
@@ -146,7 +171,7 @@ const servicesController = {
       }
 
       const { id } = req.params;
-      const { name, slug, description, basePrice, isActive } = req.body;
+      const { name, slug, type, description, imageUrl, iconName, isTrending, basePrice, isActive, options, bookingBlocks } = req.body;
 
       const updateData = {};
 
@@ -177,8 +202,29 @@ const servicesController = {
         updateData.slug = slug.trim().toLowerCase();
       }
 
+      if (type !== undefined) {
+        if (!['RESIDENTIAL', 'CORPORATE'].includes(type.toUpperCase())) {
+          return res.status(400).json({ 
+            message: 'Type must be either RESIDENTIAL or CORPORATE' 
+          });
+        }
+        updateData.type = type.toUpperCase();
+      }
+
       if (description !== undefined) {
         updateData.description = description?.trim() || null;
+      }
+
+      if (imageUrl !== undefined) {
+        updateData.imageUrl = imageUrl?.trim() || null;
+      }
+
+      if (iconName !== undefined) {
+        updateData.iconName = iconName?.trim() || null;
+      }
+
+      if (isTrending !== undefined) {
+        updateData.isTrending = isTrending === true || isTrending === 'true';
       }
 
       if (basePrice !== undefined) {
@@ -189,9 +235,38 @@ const servicesController = {
         updateData.isActive = isActive === true || isActive === 'true';
       }
 
+      if (bookingBlocks !== undefined) {
+        updateData.bookingBlocks = bookingBlocks && Array.isArray(bookingBlocks) && bookingBlocks.length > 0
+          ? bookingBlocks
+          : null;
+      }
+
+      // Handle options update if provided
+      if (options !== undefined && Array.isArray(options)) {
+        // Delete existing options
+        await prisma.serviceOption.deleteMany({
+          where: { serviceId: id },
+        });
+
+        // Create new options
+        if (options.length > 0) {
+          await prisma.serviceOption.createMany({
+            data: options.map((opt) => ({
+              serviceId: id,
+              name: typeof opt === 'string' ? opt : (opt.name || opt),
+              description: opt.description || null,
+              isActive: true,
+            })),
+          });
+        }
+      }
+
       const service = await prisma.service.update({
         where: { id },
         data: updateData,
+        include: {
+          options: true,
+        },
       });
 
       res.json({

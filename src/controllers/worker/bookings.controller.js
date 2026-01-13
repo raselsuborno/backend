@@ -331,6 +331,7 @@ const workerBookingsController = {
       }
 
       const { id } = req.params;
+      const { completionPhotoUrl, workerNotes } = req.body;
       const workerId = req.user.profile.id;
 
       // Get booking and verify it's assigned to this worker
@@ -371,11 +372,13 @@ const workerBookingsController = {
         });
       }
 
-      // Update status to COMPLETED
+      // Update status to COMPLETED with completion data
       const updatedBooking = await prisma.booking.update({
         where: { id },
         data: {
           status: 'COMPLETED',
+          ...(completionPhotoUrl && { completionPhotoUrl: completionPhotoUrl.trim() }),
+          ...(workerNotes && { workerNotes: workerNotes.trim() }),
         },
         include: {
           customer: {
@@ -409,5 +412,6 @@ const workerBookingsController = {
 };
 
 export default workerBookingsController;
+
 
 

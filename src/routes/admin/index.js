@@ -13,6 +13,7 @@ import workerApplicationsRoutes from './worker-applications.routes.js';
 import quotesRoutes from './quotes.routes.js';
 import choresRoutes from './chores.routes.js';
 import ordersRoutes from './orders.routes.js';
+import shopRoutes from './shop.routes.js';
 
 // All admin routes require authentication and admin role
 // Using requireRole: assumes requireAuth already ran, checks req.user.profile.role
@@ -36,6 +37,7 @@ router.use('/worker-applications', workerApplicationsRoutes);
 router.use('/quotes', quotesRoutes);
 router.use('/chores', choresRoutes);
 router.use('/orders', ordersRoutes);
+router.use('/shop', shopRoutes);
 
 // Legacy routes (for backward compatibility)
 router.get('/workers', adminController.getWorkers);

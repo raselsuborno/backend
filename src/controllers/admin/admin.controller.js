@@ -13,6 +13,7 @@ const adminController = {
         totalBookings,
         totalWorkers,
         pendingBookings,
+        assignedBookings,
         completedBookings,
         totalRevenue,
         newContactMessages,
@@ -22,6 +23,12 @@ const adminController = {
         prisma.booking.count(),
         prisma.profile.count({ where: { role: 'WORKER' } }),
         prisma.booking.count({ where: { status: 'PENDING' } }),
+        prisma.booking.count({ 
+          where: { 
+            status: { in: ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS'] },
+            assignedWorkerId: { not: null }
+          } 
+        }),
         prisma.booking.count({ where: { status: 'COMPLETED' } }),
         prisma.booking.aggregate({
           where: {
@@ -36,11 +43,35 @@ const adminController = {
         prisma.workerApplication.count({ where: { status: 'PENDING' } }),
       ]);
 
+      // Return structure matching frontend expectations
       res.json({
+        users: {
+          total: totalUsers,
+        },
+        workers: {
+          total: totalWorkers,
+        },
+        bookings: {
+          total: totalBookings,
+          pending: pendingBookings,
+          assigned: assignedBookings,
+          completed: completedBookings,
+        },
+        revenue: {
+          total: totalRevenue._sum.totalAmount || 0,
+        },
+        contact: {
+          newMessages: newContactMessages,
+        },
+        applications: {
+          pending: pendingWorkerApplications,
+        },
+        // Keep flat structure for backward compatibility
         totalUsers,
         totalBookings,
         totalWorkers,
         pendingBookings,
+        assignedBookings,
         completedBookings,
         totalRevenue: totalRevenue._sum.totalAmount || 0,
         newContactMessages,
