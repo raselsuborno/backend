@@ -1,16 +1,4 @@
-const express = require('express')
-const serverless = require('serverless-http')  // maps Express to Vercel
+import "dotenv/config";
+import app from "../src/app.js";
 
-const app = express()
-app.use(express.json())
-
-// Routes
-app.get('/health', (req, res) => {
-  res.json({ ok: true })
-})
-
-// Add your other routes here
-// app.get('/api/services', ...)
-
-// Export for Vercel
-module.exports = serverless(app)
+export default app;

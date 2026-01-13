@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { supabaseAdmin } from './lib/supabase.js';
 
 import authRoutes from './routes/auth.routes.js';
 import profileRoutes from './routes/profile.routes.js';
@@ -23,10 +24,21 @@ import workerApplyRoutes from './routes/worker/apply.routes.js';
 
 const app = express();
 
+// CORS configuration - allow Cloudflare Pages frontend
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://chorescape.pages.dev",
+    process.env.FRONTEND_URL
+  ].filter(Boolean),
+  credentials: true
+}));
+
 // Middleware
 app.use(helmet());
-app.use(cors());
-app.use(morgan('dev'));
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
 
 // Increase body size limit to 10MB for image uploads (base64 images can be large)
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB in bytes (10000 KB)
@@ -36,6 +48,23 @@ app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 // Routes
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// Services route - fetch all services from Supabase
+app.get('/api/services', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('services')
+      .select('*');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('[Services Route Error]', err);
+    res.status(500).json({ 
+      message: err.message || 'Failed to fetch services',
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
@@ -55,15 +84,6 @@ app.use('/api/worker/apply', workerApplyRoutes); // Worker apply route (public w
 app.use('/api/worker', workerRoutes); // Worker routes under /api/worker/* (protected)
 app.use('/api/worker-applications', workerApplicationRoutes); // Legacy worker application routes (public)
 
-// CORS configuration
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://chorescape.pages.dev",
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
-  credentials: true
-}));
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('[Error Handler]', err.message);
