@@ -80,9 +80,7 @@ export const optionalAuth = async (req, res, next) => {
       // Invalid token - continue without auth
       req.user = null;
       return next();
-    }
-
-    req.user = data.user;
+    }    req.user = data.user;
     next();
   } catch (err) {
     // On error, continue without auth

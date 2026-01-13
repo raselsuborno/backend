@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 
 // Routes
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
