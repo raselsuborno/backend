@@ -55,11 +55,13 @@ app.use('/api/worker/apply', workerApplyRoutes); // Worker apply route (public w
 app.use('/api/worker', workerRoutes); // Worker routes under /api/worker/* (protected)
 app.use('/api/worker-applications', workerApplicationRoutes); // Legacy worker application routes (public)
 
+// CORS configuration
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://chorescape.pages.dev"
-  ],
+    "https://chorescape.pages.dev",
+    process.env.FRONTEND_URL
+  ].filter(Boolean),
   credentials: true
 }));
 // Error handling middleware
