@@ -47,6 +47,15 @@ app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 
 // Routes
 
+// Root route for Vercel health check
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Backend is live',
+    message: 'ChorEscape API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Services route - fetch all services from Supabase
