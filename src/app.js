@@ -109,7 +109,7 @@ app.use('/api/quotes', quotesRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/careers', careersRoutes);
 app.use('/api/contact', contactRoutes);
-app.use('/public/services', publicServicesRoutes);
+app.use('/api/public/services', publicServicesRoutes);
 app.use('/api/public/reviews', publicReviewsRoutes);
 app.use('/customer/bookings', customerBookingsRoutes);
 app.use('/api/admin', adminRoutes); // Admin routes under /api/admin/*
