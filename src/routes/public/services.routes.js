@@ -43,7 +43,8 @@ router.get('/', async (req, res) => {
       console.error('[Public Services] Supabase error:', error);
       return res.status(500).json({
         message: error.message || 'Failed to fetch services',
-        error: process.env.NODE_ENV === 'development' ? error : undefined
+        error: process.env.NODE_ENV === 'development' ? error : undefined,
+        data: []
       });
     }
 
@@ -74,7 +75,8 @@ router.get('/', async (req, res) => {
     console.error('[Public Services] Unexpected error:', err);
     res.status(500).json({
       message: err.message || 'Failed to fetch services',
-      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      data: []
     });
   }
 });
@@ -103,7 +105,8 @@ router.get('/:id', async (req, res) => {
       console.error('[Public Services] Supabase error:', error);
       return res.status(500).json({
         message: error.message || 'Failed to fetch service',
-        error: process.env.NODE_ENV === 'development' ? error : undefined
+        error: process.env.NODE_ENV === 'development' ? error : undefined,
+        data: null
       });
     }
 
@@ -139,7 +142,8 @@ router.get('/:id', async (req, res) => {
     console.error('[Public Services] Unexpected error:', err);
     res.status(500).json({
       message: err.message || 'Failed to fetch service',
-      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      data: null
     });
   }
 });

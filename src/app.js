@@ -71,6 +71,7 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 
 // Routes
+// IMPORTANT: Route order matters! More specific routes must come before less specific ones.
 
 // Root route for Vercel health check
 app.get('/', (req, res) => {
@@ -83,25 +84,27 @@ app.get('/', (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// Services route - fetch all services from Supabase
-app.get('/api/services', async (req, res) => {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('services')
-      .select('*');
-    if (error) throw error;
-    res.json(data || []);
-  } catch (err) {
-    console.error('[Services Route Error]', err);
-    res.status(500).json({ 
-      message: err.message || 'Failed to fetch services',
-      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
-  }
-});
+// ============================================
+// PUBLIC ROUTES (no auth required)
+// ============================================
+// Mount public routes FIRST, before other /api routes
+// This ensures /api/public/services works correctly
+
+app.use('/api/public/services', publicServicesRoutes); // Must come before /api/services
+app.use('/api/public/reviews', publicReviewsRoutes);
+
+// Worker application routes (public with optional auth)
+app.use('/api/worker/apply', workerApplyRoutes);
+app.use('/api/worker-applications', workerApplicationRoutes);
+
+// ============================================
+// AUTHENTICATED ROUTES (require auth)
+// ============================================
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+
+// Customer routes
 app.use('/api/bookings', bookingsRoutes);
 app.use('/api/addresses', addressesRoutes);
 app.use('/api/chores', choresRoutes);
@@ -109,14 +112,55 @@ app.use('/api/quotes', quotesRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/careers', careersRoutes);
 app.use('/api/contact', contactRoutes);
-app.use('/api/public/services', publicServicesRoutes);
-app.use('/api/public/reviews', publicReviewsRoutes);
+
+// Legacy customer bookings route
 app.use('/customer/bookings', customerBookingsRoutes);
+
+// ============================================
+// ADMIN ROUTES (require auth + admin role)
+// ============================================
+// Admin routes must come after other /api routes to avoid conflicts
+
 app.use('/api/admin', adminRoutes); // Admin routes under /api/admin/*
 app.use('/admin', adminRoutes); // Legacy compatibility
-app.use('/api/worker/apply', workerApplyRoutes); // Worker apply route (public with optional auth) - BEFORE protected routes
+
+// ============================================
+// WORKER ROUTES (require auth + worker role)
+// ============================================
+
 app.use('/api/worker', workerRoutes); // Worker routes under /api/worker/* (protected)
-app.use('/api/worker-applications', workerApplicationRoutes); // Legacy worker application routes (public)
+
+// ============================================
+// LEGACY /api/services route (for backward compatibility)
+// ============================================
+// This route is kept for backward compatibility but should use /api/public/services
+app.get('/api/services', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('services')
+      .select('*')
+      .eq('isActive', true);
+    
+    if (error) {
+      console.error('[Services Route Error]', error);
+      return res.status(500).json({ 
+        message: error.message || 'Failed to fetch services',
+        error: process.env.NODE_ENV === 'development' ? error : undefined,
+        data: []
+      });
+    }
+    
+    // Return consistent format: { data: [...] }
+    res.json({ data: data || [] });
+  } catch (err) {
+    console.error('[Services Route Error]', err);
+    res.status(500).json({ 
+      message: err.message || 'Failed to fetch services',
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      data: []
+    });
+  }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -126,26 +170,31 @@ app.use((err, req, res, next) => {
   // Handle "entity too large" errors specifically
   if (err.type === 'entity.too.large' || err.statusCode === 413 || err.message.includes('too large')) {
     return res.status(413).json({
-      message: 'File size is too large. Maximum allowed size is 10MB (10,000 KB). Please compress your image and try again.'
+      message: 'File size is too large. Maximum allowed size is 10MB (10,000 KB). Please compress your image and try again.',
+      data: null
     });
   }
   
   // Don't send stack trace in production
   const response = {
-    message: err.message || 'Internal Server Error'
+    message: err.message || 'Internal Server Error',
+    data: null
   };
 
   if (process.env.NODE_ENV === 'development') {
     response.stack = err.stack;
+    response.error = err;
   }
 
   res.status(err.statusCode || err.status || 500).json(response);
 });
 
-// 404 handler
+// 404 handler - must be last
 app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+  res.status(404).json({ 
+    message: 'Route not found',
+    data: null
+  });
 });
 
 export default app;
-
