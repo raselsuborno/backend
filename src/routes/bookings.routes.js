@@ -1,8 +1,20 @@
 import express from "express";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import bookingsController from "../controllers/bookings.controller.js";
+import { supabaseAdmin } from "../lib/supabase.js";
 
 const router = express.Router();
+
+// GET /api/bookings - Get all bookings
+router.get("/", async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from("bookings").select("*");
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // GET /api/bookings/mine - Get user's bookings
 router.get("/mine", requireAuth, bookingsController.getMine);
