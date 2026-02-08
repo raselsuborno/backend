@@ -15,16 +15,22 @@ import choresRoutes from './chores.routes.js';
 import ordersRoutes from './orders.routes.js';
 import shopRoutes from './shop.routes.js';
 
+// Async error wrapper for middleware
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 // All admin routes require authentication and admin role
 // Using requireRole: assumes requireAuth already ran, checks req.user.profile.role
-router.use(requireAuth);
-router.use(requireRole(['admin']));
+// Wrap in asyncHandler to ensure errors are caught and passed to error handler
+router.use(asyncHandler(requireAuth));
+router.use(asyncHandler(requireRole(['admin'])));
 
 // Admin dashboard stats
-router.get('/stats', adminController.getStats);
+router.get('/stats', asyncHandler(adminController.getStats));
 
 // Contact messages (legacy - keep for compatibility)
-router.get('/contact', adminController.getContactMessages);
+router.get('/contact', asyncHandler(adminController.getContactMessages));
 
 // Mount sub-routers
 router.use('/bookings', bookingsRoutes);
@@ -40,8 +46,8 @@ router.use('/orders', ordersRoutes);
 router.use('/shop', shopRoutes);
 
 // Legacy routes (for backward compatibility)
-router.get('/workers', adminController.getWorkers);
-router.get('/users', adminController.getUsers);
+router.get('/workers', asyncHandler(adminController.getWorkers));
+router.get('/users', asyncHandler(adminController.getUsers));
 
 export default router;
 

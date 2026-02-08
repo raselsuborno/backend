@@ -13,7 +13,11 @@ const usersController = {
   getAllUsers: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          users: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+          error: 'Database not available',
+        });
       }
 
       const page = parseInt(req.query.page) || 1;
@@ -31,7 +35,7 @@ const usersController = {
         ];
       }
 
-      const [users, total] = await Promise.all([
+      const [usersResult, totalResult] = await Promise.allSettled([
         prisma.profile.findMany({
           where,
           select: {
@@ -53,10 +57,22 @@ const usersController = {
         prisma.profile.count({ where }),
       ]);
 
-      // Get booking counts for each user
-      const usersWithStats = await Promise.all(
+      // Extract results
+      const users = usersResult.status === 'fulfilled' ? usersResult.value : [];
+      const total = totalResult.status === 'fulfilled' ? totalResult.value : 0;
+
+      // Log errors if any
+      if (usersResult.status === 'rejected') {
+        console.error('[Admin Users] Error fetching users:', usersResult.reason);
+      }
+      if (totalResult.status === 'rejected') {
+        console.error('[Admin Users] Error counting users:', totalResult.reason);
+      }
+
+      // Get booking counts for each user (with error handling)
+      const usersWithStatsResults = await Promise.allSettled(
         users.map(async (user) => {
-          const [totalBookings, completedBookings] = await Promise.all([
+          const [totalBookingsResult, completedBookingsResult] = await Promise.allSettled([
             prisma.booking.count({
               where: { customerId: user.id },
             }),
@@ -68,6 +84,9 @@ const usersController = {
             }),
           ]);
 
+          const totalBookings = totalBookingsResult.status === 'fulfilled' ? totalBookingsResult.value : 0;
+          const completedBookings = completedBookingsResult.status === 'fulfilled' ? completedBookingsResult.value : 0;
+
           return {
             ...user,
             totalBookings,
@@ -75,6 +94,21 @@ const usersController = {
           };
         })
       );
+
+      // Extract users with stats, handling any failures
+      const usersWithStats = usersWithStatsResults.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        } else {
+          console.error(`[Admin Users] Error getting stats for user ${index}:`, result.reason);
+          // Return user without stats if query failed
+          return {
+            ...users[index],
+            totalBookings: 0,
+            completedBookings: 0,
+          };
+        }
+      });
 
       res.json({
         users: usersWithStats,

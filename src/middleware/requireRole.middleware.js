@@ -32,15 +32,30 @@ export const requireRole = (allowedRoles) => {
 
       // Always fetch fresh profile from database to ensure latest role
       // This prevents stale cached roles after database updates
-      const profile = await prisma.profile.findUnique({
-        where: { userId: req.user.id },
-        select: { 
-          id: true,
-          role: true,
-          email: true,
-          fullName: true,
-        },
-      });
+      let profile;
+      try {
+        profile = await prisma.profile.findUnique({
+          where: { userId: req.user.id },
+          select: { 
+            id: true,
+            role: true,
+            email: true,
+            fullName: true,
+          },
+        });
+      } catch (dbError) {
+        console.error('[requireRole] Database error fetching profile:', dbError);
+        // If database query fails, try to use profile from requireAuth if available
+        if (req.user.profile) {
+          console.warn('[requireRole] Using cached profile from requireAuth due to DB error');
+          profile = req.user.profile;
+        } else {
+          return res.status(500).json({ 
+            message: 'Failed to verify user role. Database connection error.',
+            error: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+          });
+        }
+      }
 
       if (!profile) {
         return res.status(403).json({ 
@@ -89,7 +104,12 @@ export const requireRole = (allowedRoles) => {
       next();
     } catch (error) {
       console.error('[requireRole] Error:', error);
-      res.status(500).json({ message: 'Authorization check failed' });
+      console.error('[requireRole] Error stack:', error.stack);
+      // Return 500 but with more details in development
+      res.status(500).json({ 
+        message: 'Authorization check failed',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   };
 };

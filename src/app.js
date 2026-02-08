@@ -98,11 +98,15 @@ app.use((err, req, res, next) => {
   }
   
   // Handle Prisma/database errors gracefully for admin endpoints
-  if (req.path && req.path.startsWith('/api/admin')) {
-    console.error("[Admin Error] Admin endpoint error:", req.path, err.message);
+  const path = req.path || req.originalUrl || '';
+  const isAdminEndpoint = path.includes('/admin') || path.includes('/api/admin');
+  
+  if (isAdminEndpoint) {
+    console.error("[Admin Error] Admin endpoint error:", path, err.message);
+    console.error("[Admin Error] Error stack:", err.stack);
     
     // For admin stats endpoint, return default structure instead of 500
-    if (req.path === '/api/admin/stats' || req.path === '/admin/stats') {
+    if (path.includes('/stats') || path.endsWith('/admin/stats') || path.endsWith('/api/admin/stats')) {
       return res.status(200).json({
         users: { total: 0 },
         workers: { total: 0 },
@@ -124,7 +128,7 @@ app.use((err, req, res, next) => {
     }
     
     // For admin bookings endpoint
-    if (req.path === '/api/admin/bookings' || req.path === '/admin/bookings') {
+    if (path.includes('/bookings') && (path.includes('/admin/bookings') || path.includes('/api/admin/bookings'))) {
       return res.status(200).json({
         bookings: [],
         pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
@@ -133,7 +137,7 @@ app.use((err, req, res, next) => {
     }
     
     // For admin users endpoint
-    if (req.path.includes('/api/admin/users') || req.path.includes('/admin/users')) {
+    if (path.includes('/users') && (path.includes('/admin/users') || path.includes('/api/admin/users'))) {
       return res.status(200).json({
         users: [],
         pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
@@ -142,7 +146,7 @@ app.use((err, req, res, next) => {
     }
     
     // For admin contact endpoint
-    if (req.path === '/api/admin/contact' || req.path === '/admin/contact') {
+    if (path.includes('/contact') && (path.includes('/admin/contact') || path.includes('/api/admin/contact'))) {
       return res.status(200).json({
         messages: [],
         pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },

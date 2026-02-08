@@ -13,7 +13,11 @@ const bookingsController = {
   getAllBookings: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          bookings: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+          error: 'Database not available',
+        });
       }
 
       const page = parseInt(req.query.page) || 1;
@@ -38,7 +42,7 @@ const bookingsController = {
         ];
       }
 
-      const [bookings, total] = await Promise.all([
+      const [bookingsResult, totalResult] = await Promise.allSettled([
         prisma.booking.findMany({
           where,
           select: {
@@ -99,45 +103,21 @@ const bookingsController = {
           },
           skip,
           take: pageSize,
-        }).catch((err) => {
-          console.error('[Admin Bookings] Error in findMany:', err);
-          // If select fails, try without select (fallback)
-          return prisma.booking.findMany({
-            where,
-            include: {
-              customer: {
-                select: {
-                  id: true,
-                  fullName: true,
-                  email: true,
-                  phone: true,
-                },
-              },
-              service: {
-                select: {
-                  id: true,
-                  name: true,
-                  slug: true,
-                },
-              },
-              assignedWorker: {
-                select: {
-                  id: true,
-                  fullName: true,
-                  email: true,
-                  phone: true,
-                },
-              },
-            },
-            orderBy: {
-              createdAt: 'desc',
-            },
-            skip,
-            take: pageSize,
-          });
         }),
-        prisma.booking.count({ where }).catch(() => 0),
+        prisma.booking.count({ where }),
       ]);
+
+      // Extract results from Promise.allSettled
+      const bookings = bookingsResult.status === 'fulfilled' ? bookingsResult.value : [];
+      const total = totalResult.status === 'fulfilled' ? totalResult.value : 0;
+
+      // Log errors if any
+      if (bookingsResult.status === 'rejected') {
+        console.error('[Admin Bookings] Error fetching bookings:', bookingsResult.reason);
+      }
+      if (totalResult.status === 'rejected') {
+        console.error('[Admin Bookings] Error counting bookings:', totalResult.reason);
+      }
 
       res.json({
         bookings,

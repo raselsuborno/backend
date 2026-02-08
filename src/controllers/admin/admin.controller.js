@@ -4,8 +4,27 @@ const adminController = {
   // GET /admin/stats - Get admin dashboard statistics
   getStats: async (req, res, next) => {
     try {
+      // Early return with default data if Prisma is not available
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        console.error('[Admin] Prisma client not available');
+        return res.status(200).json({
+          users: { total: 0 },
+          workers: { total: 0 },
+          bookings: { total: 0, pending: 0, assigned: 0, completed: 0 },
+          revenue: { total: 0 },
+          contact: { newMessages: 0 },
+          applications: { pending: 0 },
+          totalUsers: 0,
+          totalBookings: 0,
+          totalWorkers: 0,
+          pendingBookings: 0,
+          assignedBookings: 0,
+          completedBookings: 0,
+          totalRevenue: 0,
+          newContactMessages: 0,
+          pendingWorkerApplications: 0,
+          error: 'Database not available',
+        });
       }
 
       // Use string literals - Prisma accepts both enum values and strings
@@ -243,10 +262,14 @@ const adminController = {
   getWorkers: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          workers: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+          error: 'Database not available',
+        });
       }
 
-      const workers = await prisma.profile.findMany({
+      const workersResult = await prisma.profile.findMany({
         where: { role: 'WORKER' },
         select: {
           id: true,
@@ -258,20 +281,32 @@ const adminController = {
         orderBy: {
           fullName: 'asc',
         },
+      }).catch((err) => {
+        console.error('[Admin] Error fetching workers:', err);
+        return [];
       });
 
-      // Get assignment counts for each worker
-      const workersWithStats = await Promise.all(
-        workers.map(async (worker) => {
-          const assignments = await prisma.booking.count({
+      // Get assignment counts for each worker (with error handling)
+      const workersWithStatsResults = await Promise.allSettled(
+        workersResult.map(async (worker) => {
+          const assignmentsResult = await prisma.booking.count({
             where: { assignedWorkerId: worker.id },
-          });
+          }).catch(() => 0);
           return {
             ...worker,
-            assignments,
+            assignments: assignmentsResult,
           };
         })
       );
+
+      const workersWithStats = workersWithStatsResults.map((result) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        } else {
+          console.error('[Admin] Error getting worker stats:', result.reason);
+          return null;
+        }
+      }).filter(Boolean);
 
       res.json(workersWithStats);
     } catch (error) {
@@ -458,7 +493,12 @@ const adminController = {
   getContactMessages: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          messages: [],
+          pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
+          newCount: 0,
+          error: 'Database not available',
+        });
       }
 
       const { status, page = 1, limit = 50 } = req.query;
@@ -468,7 +508,7 @@ const adminController = {
 
       const where = status ? { status: status.toUpperCase() } : {};
 
-      const [messages, total, newCount] = await Promise.all([
+      const [messagesResult, totalResult, newCountResult] = await Promise.allSettled([
         prisma.contactMessage.findMany({
           where,
           orderBy: {
@@ -480,6 +520,21 @@ const adminController = {
         prisma.contactMessage.count({ where }),
         prisma.contactMessage.count({ where: { status: 'NEW' } }),
       ]);
+
+      const messages = messagesResult.status === 'fulfilled' ? messagesResult.value : [];
+      const total = totalResult.status === 'fulfilled' ? totalResult.value : 0;
+      const newCount = newCountResult.status === 'fulfilled' ? newCountResult.value : 0;
+
+      // Log errors if any
+      if (messagesResult.status === 'rejected') {
+        console.error('[Admin] Error fetching contact messages:', messagesResult.reason);
+      }
+      if (totalResult.status === 'rejected') {
+        console.error('[Admin] Error counting contact messages:', totalResult.reason);
+      }
+      if (newCountResult.status === 'rejected') {
+        console.error('[Admin] Error counting new contact messages:', newCountResult.reason);
+      }
 
       res.json({
         messages,
