@@ -72,9 +72,7 @@ export const optionalAuth = async (req, res, next) => {
       return next();
     }
 
-    const token = authHeader.replace("Bearer ", "");
-
-    const { data, error } = await supabase.auth.getUser(token);    if (error || !data?.user) {
+    const token = authHeader.replace("Bearer ", "");    const { data, error } = await supabase.auth.getUser(token);    if (error || !data?.user) {
       // Invalid token - continue without auth
       req.user = null;
       return next();
