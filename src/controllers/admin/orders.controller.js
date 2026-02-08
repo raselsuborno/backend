@@ -2,6 +2,14 @@ import prisma from '../../lib/prisma.js';
 
 export const getAllOrders = async (req, res, next) => {
   try {
+    if (!prisma) {
+      return res.status(200).json({
+        orders: [],
+        pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 },
+        error: 'Database not available',
+      });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 50;
     const skip = (page - 1) * pageSize;
@@ -9,7 +17,7 @@ export const getAllOrders = async (req, res, next) => {
 
     const where = status ? { status: status.toUpperCase() } : {};
 
-    const [orders, total] = await Promise.all([
+    const [ordersResult, totalResult] = await Promise.allSettled([
       prisma.order.findMany({
         where,
         include: {
@@ -40,6 +48,16 @@ export const getAllOrders = async (req, res, next) => {
       prisma.order.count({ where }),
     ]);
 
+    const orders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+    const total = totalResult.status === 'fulfilled' ? totalResult.value : 0;
+
+    if (ordersResult.status === 'rejected') {
+      console.error('[Admin Orders] Error fetching orders:', ordersResult.reason);
+    }
+    if (totalResult.status === 'rejected') {
+      console.error('[Admin Orders] Error counting orders:', totalResult.reason);
+    }
+
     res.json({
       orders,
       pagination: {
@@ -51,7 +69,12 @@ export const getAllOrders = async (req, res, next) => {
     });
   } catch (error) {
     console.error('[Admin Orders] Error:', error);
-    next(error);
+    // Return default data instead of throwing
+    return res.status(200).json({
+      orders: [],
+      pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 },
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
   }
 };
 

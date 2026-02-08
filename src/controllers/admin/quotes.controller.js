@@ -2,6 +2,14 @@ import prisma from '../../lib/prisma.js';
 
 export const getAllQuotes = async (req, res, next) => {
   try {
+    if (!prisma) {
+      return res.status(200).json({
+        quotes: [],
+        pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 },
+        error: 'Database not available',
+      });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 50;
     const skip = (page - 1) * pageSize;
@@ -9,7 +17,7 @@ export const getAllQuotes = async (req, res, next) => {
 
     const where = status ? { status: status.toUpperCase() } : {};
 
-    const [quotes, total] = await Promise.all([
+    const [quotesResult, totalResult] = await Promise.allSettled([
       prisma.quote.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -18,6 +26,16 @@ export const getAllQuotes = async (req, res, next) => {
       }),
       prisma.quote.count({ where }),
     ]);
+
+    const quotes = quotesResult.status === 'fulfilled' ? quotesResult.value : [];
+    const total = totalResult.status === 'fulfilled' ? totalResult.value : 0;
+
+    if (quotesResult.status === 'rejected') {
+      console.error('[Admin Quotes] Error fetching quotes:', quotesResult.reason);
+    }
+    if (totalResult.status === 'rejected') {
+      console.error('[Admin Quotes] Error counting quotes:', totalResult.reason);
+    }
 
     res.json({
       quotes,
@@ -30,7 +48,12 @@ export const getAllQuotes = async (req, res, next) => {
     });
   } catch (error) {
     console.error('[Admin Quotes] Error:', error);
-    next(error);
+    // Return default data instead of throwing
+    return res.status(200).json({
+      quotes: [],
+      pagination: { page: 1, pageSize: 50, total: 0, totalPages: 0 },
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
   }
 };
 

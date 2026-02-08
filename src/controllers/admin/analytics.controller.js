@@ -17,7 +17,13 @@ const analyticsController = {
   getOverview: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          bookings: { total: 0, today: 0, thisWeek: 0, completed: 0, cancelled: 0, completionRate: 0 },
+          revenue: { total: 0, averageBookingValue: 0, completedBookingsCount: 0 },
+          workers: { total: 0, active: 0, inactive: 0 },
+          services: { total: 0, active: 0, inactive: 0 },
+          error: 'Database not available',
+        });
       }
 
       // Date calculations
@@ -26,14 +32,8 @@ const analyticsController = {
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
 
-      // Reduce parallel queries to avoid pool exhaustion - execute in batches
-      const [
-        totalBookings,
-        bookingsToday,
-        bookingsThisWeek,
-        completedBookings,
-        cancelledBookings,
-      ] = await Promise.all([
+      // Reduce parallel queries to avoid pool exhaustion - execute in batches with error handling
+      const batch1Results = await Promise.allSettled([
         prisma.booking.count(),
         prisma.booking.count({ where: { createdAt: { gte: startOfToday } } }),
         prisma.booking.count({ where: { createdAt: { gte: startOfWeek } } }),
@@ -41,8 +41,21 @@ const analyticsController = {
         prisma.booking.count({ where: { status: 'CANCELLED' } }),
       ]);
 
+      const totalBookings = batch1Results[0].status === 'fulfilled' ? batch1Results[0].value : 0;
+      const bookingsToday = batch1Results[1].status === 'fulfilled' ? batch1Results[1].value : 0;
+      const bookingsThisWeek = batch1Results[2].status === 'fulfilled' ? batch1Results[2].value : 0;
+      const completedBookings = batch1Results[3].status === 'fulfilled' ? batch1Results[3].value : 0;
+      const cancelledBookings = batch1Results[4].status === 'fulfilled' ? batch1Results[4].value : 0;
+
+      // Log any failures
+      batch1Results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[Admin Analytics] Batch 1 query ${index} failed:`, result.reason);
+        }
+      });
+
       // Batch 2: Revenue and workers
-      const [totalRevenue, avgBookingValue, totalWorkers, totalServices, activeServices] = await Promise.all([
+      const batch2Results = await Promise.allSettled([
         prisma.booking.aggregate({
           where: { status: 'COMPLETED', totalAmount: { not: null } },
           _sum: { totalAmount: true },
@@ -57,16 +70,34 @@ const analyticsController = {
         prisma.service.count({ where: { isActive: true } }),
       ]);
 
-      // Calculate active workers separately to avoid pool issues
-      const activeWorkersList = await prisma.booking.findMany({
-        where: {
-          assignedWorkerId: { not: null },
-          status: { in: ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS'] },
-        },
-        select: { assignedWorkerId: true },
-        distinct: ['assignedWorkerId'],
+      const totalRevenue = batch2Results[0].status === 'fulfilled' ? batch2Results[0].value : { _sum: { totalAmount: 0 } };
+      const avgBookingValue = batch2Results[1].status === 'fulfilled' ? batch2Results[1].value : { _avg: { totalAmount: 0 }, _count: { totalAmount: 0 } };
+      const totalWorkers = batch2Results[2].status === 'fulfilled' ? batch2Results[2].value : 0;
+      const totalServices = batch2Results[3].status === 'fulfilled' ? batch2Results[3].value : 0;
+      const activeServices = batch2Results[4].status === 'fulfilled' ? batch2Results[4].value : 0;
+
+      // Log any failures
+      batch2Results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[Admin Analytics] Batch 2 query ${index} failed:`, result.reason);
+        }
       });
-      const activeWorkersCount = activeWorkersList.length;
+
+      // Calculate active workers separately to avoid pool issues
+      let activeWorkersCount = 0;
+      try {
+        const activeWorkersList = await prisma.booking.findMany({
+          where: {
+            assignedWorkerId: { not: null },
+            status: { in: ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS'] },
+          },
+          select: { assignedWorkerId: true },
+          distinct: ['assignedWorkerId'],
+        });
+        activeWorkersCount = activeWorkersList.length;
+      } catch (err) {
+        console.error('[Admin Analytics] Error fetching active workers:', err);
+      }
 
       res.json({
         bookings: {
@@ -80,24 +111,31 @@ const analyticsController = {
             : 0,
         },
         revenue: {
-          total: totalRevenue._sum.totalAmount || 0,
-          averageBookingValue: avgBookingValue._avg.totalAmount || 0,
-          completedBookingsCount: avgBookingValue._count.totalAmount || 0,
+          total: totalRevenue._sum?.totalAmount || 0,
+          averageBookingValue: avgBookingValue._avg?.totalAmount || 0,
+          completedBookingsCount: avgBookingValue._count?.totalAmount || 0,
         },
         workers: {
           total: totalWorkers,
           active: activeWorkersCount,
-          inactive: totalWorkers - activeWorkersCount,
+          inactive: Math.max(0, totalWorkers - activeWorkersCount),
         },
         services: {
           total: totalServices,
           active: activeServices,
-          inactive: totalServices - activeServices,
+          inactive: Math.max(0, totalServices - activeServices),
         },
       });
     } catch (error) {
       console.error('[Admin Analytics] Error in getOverview:', error);
-      next(error);
+      // Return default structure instead of throwing
+      return res.status(200).json({
+        bookings: { total: 0, today: 0, thisWeek: 0, completed: 0, cancelled: 0, completionRate: 0 },
+        revenue: { total: 0, averageBookingValue: 0, completedBookingsCount: 0 },
+        workers: { total: 0, active: 0, inactive: 0 },
+        services: { total: 0, active: 0, inactive: 0 },
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
     }
   },
 
@@ -105,7 +143,12 @@ const analyticsController = {
   getBookingsAnalytics: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          statusBreakdown: [],
+          dateRange: { today: 0, week: 0, month: 0 },
+          trend: [],
+          error: 'Database not available',
+        });
       }
 
       // Date calculations
@@ -146,16 +189,21 @@ const analyticsController = {
       const sevenDaysAgo = new Date(now);
       sevenDaysAgo.setDate(now.getDate() - 7);
       
-      const recentBookings = await prisma.booking.findMany({
-        where: {
-          createdAt: { gte: sevenDaysAgo },
-        },
-        select: {
-          createdAt: true,
-          status: true,
-        },
-        orderBy: { createdAt: 'asc' },
-      });
+      let recentBookings = [];
+      try {
+        recentBookings = await prisma.booking.findMany({
+          where: {
+            createdAt: { gte: sevenDaysAgo },
+          },
+          select: {
+            createdAt: true,
+            status: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+      } catch (err) {
+        console.error('[Admin Analytics] Error fetching recent bookings:', err);
+      }
 
       // Group by day
       const bookingsByDay = {};
@@ -184,7 +232,13 @@ const analyticsController = {
       });
     } catch (error) {
       console.error('[Admin Analytics] Error in getBookingsAnalytics:', error);
-      next(error);
+      // Return default structure instead of throwing
+      return res.status(200).json({
+        summary: { today: 0, thisWeek: 0, thisMonth: 0 },
+        statusBreakdown: [],
+        trend: { period: '7days', data: [] },
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
     }
   },
 
@@ -291,59 +345,57 @@ const analyticsController = {
   getWorkersAnalytics: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          summary: { totalWorkers: 0, activeWorkers: 0, inactiveWorkers: 0, totalCompletedJobs: 0, totalRevenue: 0, averageCompletionRate: 0 },
+          workers: [],
+          error: 'Database not available',
+        });
       }
 
       // Get all workers
-      const workers = await prisma.profile.findMany({
-        where: { role: 'WORKER' },
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-        },
-      });
+      let workers = [];
+      try {
+        workers = await prisma.profile.findMany({
+          where: { role: 'WORKER' },
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        });
+      } catch (err) {
+        console.error('[Admin Analytics] Error fetching workers:', err);
+      }
 
-      // Get worker performance metrics - process in smaller batches
+      // Get worker performance metrics - process in smaller batches with error handling
       const workerStats = [];
       for (const worker of workers) {
-        const [
-          totalBookings,
-          completedBookings,
-          inProgressBookings,
-          assignedBookings,
-        ] = await Promise.all([
-          prisma.booking.count({ where: { assignedWorkerId: worker.id } }),
-          prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'COMPLETED' } }),
-          prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'IN_PROGRESS' } }),
-          prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'ASSIGNED' } }),
-        ]);
+        try {
+          const statsResults = await Promise.allSettled([
+            prisma.booking.count({ where: { assignedWorkerId: worker.id } }),
+            prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'COMPLETED' } }),
+            prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'IN_PROGRESS' } }),
+            prisma.booking.count({ where: { assignedWorkerId: worker.id, status: 'ASSIGNED' } }),
+            prisma.booking.aggregate({
+              where: {
+                assignedWorkerId: worker.id,
+                status: 'COMPLETED',
+                totalAmount: { not: null },
+              },
+              _sum: { totalAmount: true },
+            }),
+          ]);
 
-        const revenue = await prisma.booking.aggregate({
-          where: {
-            assignedWorkerId: worker.id,
-            status: 'COMPLETED',
-            totalAmount: { not: null },
-          },
-          _sum: { totalAmount: true },
-        });
+          const totalBookings = statsResults[0].status === 'fulfilled' ? statsResults[0].value : 0;
+          const completedBookings = statsResults[1].status === 'fulfilled' ? statsResults[1].value : 0;
+          const inProgressBookings = statsResults[2].status === 'fulfilled' ? statsResults[2].value : 0;
+          const assignedBookings = statsResults[3].status === 'fulfilled' ? statsResults[3].value : 0;
+          const revenue = statsResults[4].status === 'fulfilled' ? statsResults[4].value : { _sum: { totalAmount: 0 } };
 
           const completionRate = totalBookings > 0
             ? ((completedBookings / totalBookings) * 100).toFixed(1)
             : 0;
 
-          return {
-            workerId: worker.id,
-            workerName: worker.fullName || worker.email,
-            email: worker.email,
-            totalJobs: totalBookings,
-            completedJobs: completedBookings,
-            inProgressJobs: inProgressBookings,
-            assignedJobs: assignedBookings,
-            completionRate: parseFloat(completionRate),
-            revenue: revenue._sum.totalAmount || 0,
-            isActive: totalBookings > 0,
-          };
           workerStats.push({
             workerId: worker.id,
             workerName: worker.fullName || worker.email,
@@ -353,10 +405,26 @@ const analyticsController = {
             inProgressJobs: inProgressBookings,
             assignedJobs: assignedBookings,
             completionRate: parseFloat(completionRate),
-            revenue: revenue._sum.totalAmount || 0,
+            revenue: revenue._sum?.totalAmount || 0,
             isActive: totalBookings > 0,
           });
+        } catch (err) {
+          console.error(`[Admin Analytics] Error getting stats for worker ${worker.id}:`, err);
+          // Add worker with zero stats
+          workerStats.push({
+            workerId: worker.id,
+            workerName: worker.fullName || worker.email,
+            email: worker.email,
+            totalJobs: 0,
+            completedJobs: 0,
+            inProgressJobs: 0,
+            assignedJobs: 0,
+            completionRate: 0,
+            revenue: 0,
+            isActive: false,
+          });
         }
+      }
 
         // Sort by total jobs descending
         workerStats.sort((a, b) => b.totalJobs - a.totalJobs);
@@ -382,7 +450,12 @@ const analyticsController = {
       });
     } catch (error) {
       console.error('[Admin Analytics] Error in getWorkersAnalytics:', error);
-      next(error);
+      // Return default structure instead of throwing
+      return res.status(200).json({
+        summary: { totalWorkers: 0, activeWorkers: 0, inactiveWorkers: 0, totalCompletedJobs: 0, totalRevenue: 0, averageCompletionRate: 0 },
+        workers: [],
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
     }
   },
 
@@ -390,39 +463,41 @@ const analyticsController = {
   getServicesAnalytics: async (req, res, next) => {
     try {
       if (!prisma) {
-        return res.status(503).json({ message: 'Database not available' });
+        return res.status(200).json({
+          summary: { totalServices: 0, activeServices: 0, totalBookings: 0, totalRevenue: 0 },
+          services: [],
+          mostBooked: null,
+          leastBooked: null,
+          error: 'Database not available',
+        });
       }
 
       // Get all services
-      const services = await prisma.service.findMany({
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          isActive: true,
-        },
-      });
+      let services = [];
+      try {
+        services = await prisma.service.findMany({
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            isActive: true,
+          },
+        });
+      } catch (err) {
+        console.error('[Admin Analytics] Error fetching services:', err);
+      }
 
-      // Get booking counts and revenue per service
-      const serviceStats = await Promise.all(
+      // Get booking counts and revenue per service with error handling
+      const serviceStatsResults = await Promise.allSettled(
         services.map(async (service) => {
-          const [
-            totalBookings,
-            completedBookings,
-            revenue,
-          ] = await Promise.all([
-            // Total bookings
-            prisma.booking.count({
-              where: { serviceId: service.id },
-            }),
-            // Completed bookings
+          const statsResults = await Promise.allSettled([
+            prisma.booking.count({ where: { serviceId: service.id } }),
             prisma.booking.count({
               where: {
                 serviceId: service.id,
                 status: 'COMPLETED',
               },
             }),
-            // Revenue
             prisma.booking.aggregate({
               where: {
                 serviceId: service.id,
@@ -433,6 +508,10 @@ const analyticsController = {
             }),
           ]);
 
+          const totalBookings = statsResults[0].status === 'fulfilled' ? statsResults[0].value : 0;
+          const completedBookings = statsResults[1].status === 'fulfilled' ? statsResults[1].value : 0;
+          const revenue = statsResults[2].status === 'fulfilled' ? statsResults[2].value : { _sum: { totalAmount: 0 } };
+
           return {
             serviceId: service.id,
             serviceName: service.name,
@@ -440,10 +519,14 @@ const analyticsController = {
             isActive: service.isActive,
             totalBookings,
             completedBookings,
-            revenue: revenue._sum.totalAmount || 0,
+            revenue: revenue._sum?.totalAmount || 0,
           };
         })
       );
+
+      const serviceStats = serviceStatsResults
+        .map((result) => result.status === 'fulfilled' ? result.value : null)
+        .filter(Boolean);
 
       // Sort by total bookings descending
       serviceStats.sort((a, b) => b.totalBookings - a.totalBookings);
@@ -472,7 +555,14 @@ const analyticsController = {
       });
     } catch (error) {
       console.error('[Admin Analytics] Error in getServicesAnalytics:', error);
-      next(error);
+      // Return default structure instead of throwing
+      return res.status(200).json({
+        summary: { totalServices: 0, activeServices: 0, totalBookings: 0, totalRevenue: 0 },
+        services: [],
+        mostBooked: null,
+        leastBooked: null,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
     }
   },
 };
